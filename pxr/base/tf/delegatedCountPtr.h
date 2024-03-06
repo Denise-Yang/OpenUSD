@@ -202,11 +202,14 @@ public:
     }
 
     /// Call `TfDelegatedCountDecrement` on the held pointer if it is not
-    /// `nullptr`.
-    ~TfDelegatedCountPtr() noexcept(DecrementIsNoExcept()) {
+    /// `nullptr`. A compiler bug occurs in VS2017 with the use of noexcept in
+    /// deconstructors, such that DecrementIsNoExcept may return void. To remedy
+    /// this we do a void check and default to the original value if it exists
+     ~TfDelegatedCountPtr() noexcept(
+                !std::is_void<decltype(DecrementIsNoExcept())>::value &&
+                DecrementIsNoExcept()) {
         _DecrementIfValid();
     }
-
     /// Dereference the underlying pointer.
     ReferenceType operator*() const noexcept(DereferenceIsNoExcept()) {
         return *get();
