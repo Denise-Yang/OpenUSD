@@ -1,0 +1,91 @@
+#usda 1.0
+(
+    defaultPrim = "cam"
+    endTimeCode = 3
+    startTimeCode = 0
+)
+
+
+def Camera "cam" (
+    prepend apiSchemas = ["BackPlateAPI:p0", "BackPlateAPI:p1", "BackPlateAPI:p2",
+    "BackPlateAPI:p3", "BackPlateAPI:p4", "BackPlateAPI:p5"]
+)
+{
+    float verticalAperture = 10.0
+    float horizontalAperture = 10.0
+    float focusDistance = 20.0
+
+    # Test rotation
+    float3 backPlate:p0:rotateXYZ:tweak.timeSamples = {
+        0: (0.0, 0.0, 0.0),
+        1: (45.0, 0.0, 0.0),
+        2: (90.0, 0.0, 0.0),
+    }
+    asset backPlate:p0:image = @./redRect.png@
+    float3 backPlate:p0:translate:tweak = (-10.0, 5.0, -100.0) 
+
+    # Test translation
+    asset backPlate:p1:image = @./redRect.png@
+    float3 backPlate:p1:translate:tweak.timeSamples = {
+        0: (0.0, 5.0, -100.0),
+        1: (0.0, 3.0, -100.0),
+        2: (0.0, 6.0, -100.0),
+    }
+
+    # Test scale
+    asset backPlate:p2:image = @./redRect.png@
+    float3 backPlate:p2:translate:tweak = (10.0,5.0,-100.0) 
+    float2 backPlate:p2:scale:tweak.timeSamples = {
+        0: (1.0,1.0),
+        1: (1.5,1.5),
+        2: (0.5,0.5),
+    }
+
+    # Test color grading
+    asset backPlate:p3:image = @./redRect.png@
+    float3 backPlate:p3:translate:tweak = (10.0,-5.0,-100.0) 
+    
+    float3 backPlate:p3:luma:power.timeSamples = {
+        0: (0.5, 1.2, -0.75),
+        1: (1.0, 1.0, 1.0),
+        2: (1.0, 1.0, 1.0),
+    }
+    float3 backPlate:p3:luma:offset.timeSamples = {
+        0: (0.0, 0.0, 0.0),
+        1: (-5.0, 255.0, 0.0),
+        2: (0.0, 0.0, 0.0),
+    }
+    float3 backPlate:p3:luma:slope.timeSamples = {
+        0: (1.0, 1.0, 1.0),
+        1: (1.0, 1.0, 1.0),
+        2: (0.2, 1.0, 1.5),
+    }
+    # Test depth
+    asset backPlate:p4:image = @./redRect.png@
+    asset backPlate:p4:depth:image = @./depthMap.png@
+
+    float3 backPlate:p4:translate:tweak = (0.0,-5.0,-100.0) 
+    float3 backPlate:p4:rotateXYZ:tweak = (0.0, 20.0, 0.0) 
+
+    float backPlate:p4:depth:cameraSpaceOffset.timeSamples = {
+        0: 0.0,
+        1: 0.0,
+        2: 5.0,
+    }
+    float backPlate:p4:depth:normalizingFactor.timeSamples = {
+        0: 1.0,
+        1: 10.0,
+        2: 1.0,
+    }
+    float backPlate:p4:depth:minOffset.timeSamples = {
+        0: -5.0,
+        1: 0.0,
+        2: 0.0,
+    }
+    # Test animated material
+    asset backPlate:p5:image.timeSamples = {
+        0: @./redRect.png@,
+        1: @./blueEllipse.png@
+    }
+    float3 backPlate:p5:translate:tweak = (-10.0,-5.0,-100.0)
+}

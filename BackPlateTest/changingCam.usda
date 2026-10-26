@@ -1,0 +1,28 @@
+#usda 1.0
+(
+    defaultPrim = "cam"
+    endTimeCode = 3
+    startTimeCode = 0
+)
+
+def Camera "cam" (
+    prepend apiSchemas = ["BackPlateAPI:p0"]
+)
+{
+    uniform token[] xformOpOrder = ["xformOp:transform"]
+
+    custom matrix4d xformOp:transform.timeSamples = {
+        0: ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (2, 0, 0, 1) ),
+        1: ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (2, 0, 5, 1) ),
+        2: ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (2, 0, 5, 1) ),
+    }
+    float verticalAperture = 10.0
+    float horizontalAperture = 10.0
+
+    float focusDistance.timeSamples = {
+        0: 20.0,
+        1: 2.0,
+        2: 100.0,
+    }
+}
+
