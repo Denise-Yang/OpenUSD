@@ -330,13 +330,13 @@ private:
     HdVec3fDataSourceHandle 
     _GetLumaSource(HdBackPlateSchema const &backPlate) const {
         if (_type == _backPlateAttrTokens->offset) {
-            return backPlate.GetLumaOffset();
+            return backPlate.GetLumaLift();
         }
         if (_type == _backPlateAttrTokens->slope) {
-            return backPlate.GetLumaSlope();
+            return backPlate.GetLumaGain();
         }
         if (_type == _backPlateAttrTokens->power) {
-            return backPlate.GetLumaPower();
+            return backPlate.GetLumaGamma();
         }
         return nullptr;
     }
