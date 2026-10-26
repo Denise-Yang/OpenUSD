@@ -10,29 +10,15 @@
 #include "pxr/imaging/hd/cameraSchema.h"
 #include "pxr/imaging/hd/retainedDataSource.h"
 #include "pxr/imaging/hd/materialSchema.h"
-#include "pxr/imaging/hd/materialNetworkSchema.h"
-#include "pxr/imaging/hd/materialNodeSchema.h"
-#include "pxr/imaging/hd/materialNodeParameterSchema.h"
-#include "pxr/imaging/hd/materialConnectionSchema.h"
-#include "pxr/imaging/hd/materialBindingsSchema.h"
-#include "pxr/imaging/hd/materialBindingSchema.h"
-#include "pxr/imaging/hd/meshSchema.h"
-#include "pxr/imaging/hd/meshTopologySchema.h"
 #include "pxr/imaging/hd/overlayContainerDataSource.h"
 #include "pxr/imaging/hd/primvarsSchema.h"
-#include "pxr/imaging/hd/primvarSchema.h"
 #include "pxr/imaging/hd/schemaTypeDefs.h"
 #include "pxr/imaging/hd/tokens.h"
 #include "pxr/imaging/hd/xformSchema.h"
 
-#include "pxr/imaging/pxOsd/tokens.h"
-
 #include "pxr/base/tf/diagnostic.h"
 #include "pxr/base/tf/token.h"
-#include "pxr/base/vt/array.h"
 #include "pxr/base/vt/typeHeaders.h"
-#include "pxr/base/vt/types.h"
-#include "pxr/base/vt/value.h"
 
 #include <vector>
 PXR_NAMESPACE_OPEN_SCOPE
@@ -40,25 +26,6 @@ PXR_NAMESPACE_OPEN_SCOPE
 TF_DEFINE_PRIVATE_TOKENS(_backPlatePrimsTokens,
     (mesh)
     (material)
-);
-
-TF_DEFINE_PRIVATE_TOKENS(_materialNodeNamesTokens,
-    (UsdPrimvarReader_float2)
-    (UsdUVTexture)
-    (UsdPreviewSurface)
-);
-
-TF_DEFINE_PRIVATE_TOKENS(_materialNodeParamsTokens,
-    (rgb)
-    (file) 
-    (st)
-    (wrapS)
-    (wrapT)
-    (clamp)
-    (texCoord)
-    (emissiveColor)
-    (varname)
-    (result)
 );
 
 //////////////////////////// Helper Functions //////////////////////////////////
@@ -70,33 +37,11 @@ _BuildBackPlatePrimPath(const SdfPath &cameraPrimPath,
     return cameraPrimPath.AppendChild(instanceName).AppendChild(childName);
 }
 
-static inline HdBackPlateSchema 
-_GetBackPlateSchema(TfToken const &instanceName, 
-                    HdContainerDataSourceHandle const &primDataSource) 
-{
-    HdCameraSchema cam = HdCameraSchema::GetFromParent(primDataSource);
-    HdBackPlateSchema backplate = cam.GetBackPlate().Get(instanceName);
-    return backplate;
-}
-
-template <typename DataSourceHandle, typename T>
-static bool
-_GetDefaultTypedValue(const DataSourceHandle &dataSource, 
-                      HdSampledDataSource::Time const shutterOffset,
-                      T* result) 
-{
-    if (!dataSource || !result) {
-        return false;
-    }
-    *result = dataSource->GetTypedValue(shutterOffset);
-    return true;
-}
-
-static GfVec2f
-_ComputeEffectiveDimensions(
+GfVec2f
+HdsiBackPlateSceneIndex::_ComputeEffectiveDimensions(
     TfToken const &instanceName,
     HdContainerDataSourceHandle const &primDataSource,
-    HdSampledDataSource::Time const shutterOffset) 
+    HdSampledDataSource::Time const shutterOffset)
 {
     HdCameraSchema camera = HdCameraSchema::GetFromParent(primDataSource);
     if (!camera) {
@@ -106,44 +51,45 @@ _ComputeEffectiveDimensions(
     float horizontalAperture;
     float verticalAperture;
     TfToken projectionType;
-    
-    bool cameraValuesAreValid = 
-        _GetDefaultTypedValue(
+
+    bool cameraValuesAreValid =
+        HdsiBackPlateSceneIndex::_GetDefaultTypedValue(
             camera.GetProjection(), shutterOffset, &projectionType) &&
-        _GetDefaultTypedValue(
+        HdsiBackPlateSceneIndex::_GetDefaultTypedValue(
             camera.GetVerticalAperture(), shutterOffset, &verticalAperture) &&
-        _GetDefaultTypedValue(
+        HdsiBackPlateSceneIndex::_GetDefaultTypedValue(
             camera.GetHorizontalAperture(), shutterOffset, &horizontalAperture);
-    
+
     if (!cameraValuesAreValid) {
         return GfVec2f(0.0);
     }
 
-    HdBackPlateSchema backPlate =
-        _GetBackPlateSchema(instanceName, primDataSource);
+    HdBackPlateSchema backPlate = HdsiBackPlateSceneIndex::_GetBackPlateSchema(
+        instanceName, primDataSource);
     if (!backPlate) {
         return GfVec2f(0.0);
     }
 
     GfVec2f scale = GfVec2f(1.0);
-    _GetDefaultTypedValue( backPlate.GetScaleTweak(), shutterOffset, &scale);
+    HdsiBackPlateSceneIndex::_GetDefaultTypedValue(
+        backPlate.GetScaleTweak(), shutterOffset, &scale);
 
-    // For an orthographic projection, the back plate will by default fit the 
+    // For an orthographic projection, the back plate will by default fit the
     // camera's aperture and sized accordingly by it's scale attribute.
     if (projectionType == HdCameraSchemaTokens->orthographic) {
         return GfVec2f(horizontalAperture*scale[0],verticalAperture*scale[1]);
     }
 
-    // For a perspective projection, the back plate will by default fit the 
+    // For a perspective projection, the back plate will by default fit the
     // camera's frustum and scaled further by it's scale attribute.
     float focalLength;
     float focusDistance;
-    cameraValuesAreValid = 
-        _GetDefaultTypedValue(
+    cameraValuesAreValid =
+        HdsiBackPlateSceneIndex::_GetDefaultTypedValue(
             camera.GetFocalLength(), shutterOffset, &focalLength) &&
-        _GetDefaultTypedValue(
+        HdsiBackPlateSceneIndex::_GetDefaultTypedValue(
             camera.GetFocusDistance(), shutterOffset, &focusDistance);
-    
+
     if (!cameraValuesAreValid) {
         return  GfVec2f(0.0);
     }
@@ -152,38 +98,39 @@ _ComputeEffectiveDimensions(
     // by the focus distance and scaling factor to get the actual dimension.
     const float ratio = focusDistance / focalLength;
     return GfVec2f(horizontalAperture*scale[0]*ratio,
-                   verticalAperture*scale[1]*ratio);
+                verticalAperture*scale[1]*ratio);
 }
 
-static GfMatrix4d 
-_ComputeLocalXform(HdContainerDataSourceHandle const &primDataSource,
-                   TfToken const &instanceName,
-                   HdSampledDataSource::Time const shutterOffset)
+GfMatrix4d
+HdsiBackPlateSceneIndex::_ComputeLocalXform(
+    HdContainerDataSourceHandle const &primDataSource,
+    TfToken const &instanceName,
+    HdSampledDataSource::Time const shutterOffset)
 {
     HdCameraSchema cam = HdCameraSchema::GetFromParent(primDataSource);
-    HdBackPlateSchema backPlate = 
-        _GetBackPlateSchema(instanceName, primDataSource);
+    HdBackPlateSchema backPlate = HdsiBackPlateSceneIndex::_GetBackPlateSchema(
+        instanceName, primDataSource);
 
     if (!cam || !backPlate) {
         return GfMatrix4d(1.0);
     }
 
-    // Translation is applied ontop of a shift to the focus distance from 
+    // Translation is applied ontop of a shift to the focus distance from
     // the camera. Refer to the docs for more details.
     float focusDistance;
-    if(!_GetDefaultTypedValue(
+    if(! HdsiBackPlateSceneIndex::_GetDefaultTypedValue(
         cam.GetFocusDistance(), shutterOffset, &focusDistance))
     {
         return GfMatrix4d(1.0);
     }
-    
+
     GfVec3d translate(0.0);
     GfVec3f rotate(0.0);
-    _GetDefaultTypedValue(
+    HdsiBackPlateSceneIndex::_GetDefaultTypedValue(
         backPlate.GetRotateXYZTweak(), shutterOffset, &rotate);
-    _GetDefaultTypedValue(
+    HdsiBackPlateSceneIndex::_GetDefaultTypedValue(
         backPlate.GetTranslateTweak(), shutterOffset, &translate);
-    
+
     // Camera is Y-up looking down the -Z axis
     translate[2] -= focusDistance;
 
@@ -195,454 +142,13 @@ _ComputeLocalXform(HdContainerDataSourceHandle const &primDataSource,
     local.SetTransform(rz * ry * rx, translate);
     return local;
 }
-/////////////////////////// Datasource Builders ////////////////////////////////
 
-class _PointsValueDataSource : public HdVec3fArrayDataSource
+HdDataSourceLocatorSet
+HdsiBackPlateSceneIndex::_GetAdditionalDirtyLocators() const
 {
-public:
-    HD_DECLARE_DATASOURCE(_PointsValueDataSource);
-
-    VtValue GetValue(Time t) override {
-        return VtValue(GetTypedValue(t));
-    }
-                
-    VtVec3fArray GetTypedValue(Time t) override {
-        GfVec2f dims = _ComputeEffectiveDimensions( 
-                            _instanceName, _primDataSource, t);
-        float width = dims[0];
-        float length = dims[1];
-        return {
-            { 0.5f * width, 0.5f * length, 0.0f},
-            {-0.5f * width, 0.5f * length, 0.0f},
-            {-0.5f * width,-0.5f * length, 0.0f},
-            { 0.5f * width,-0.5f * length, 0.0f}};
-    }
-
-    bool GetContributingSampleTimesForInterval(
-        Time startTime, Time endTime,
-        std::vector<Time> *outSampleTimes) override
-    {
-        HdCameraSchema cam = HdCameraSchema::GetFromParent(_primDataSource);
-        HdBackPlateSchema backPlate = 
-            _GetBackPlateSchema(_instanceName, _primDataSource);
-        HdSampledDataSourceHandle sources[] = {
-            cam.GetHorizontalAperture(),
-            cam.GetVerticalAperture(),
-            cam.GetFocalLength(),
-            cam.GetFocusDistance(),
-            cam.GetProjection(),
-            backPlate.GetScaleTweak()
-        };
-        return HdGetMergedContributingSampleTimesForInterval(
-            TfArraySize(sources), sources, startTime, endTime, outSampleTimes);
-    }
-
-private:
-    _PointsValueDataSource(TfToken const &instanceName,
-                           HdContainerDataSourceHandle const &primDataSource)
-    : _instanceName(instanceName)
-    , _primDataSource(primDataSource) {}
-
-    TfToken const _instanceName;
-    HdContainerDataSourceHandle const _primDataSource;
-}; 
-
-class _XformMatrixDataSource : public HdMatrixDataSource
-{
-public:
-    HD_DECLARE_DATASOURCE(_XformMatrixDataSource);
-
-    VtValue GetValue(Time t) override {
-        return VtValue(GetTypedValue(t));
-    }
-
-    GfMatrix4d GetTypedValue(Time shutterOffset) override {
-        HdXformSchema camXform = HdXformSchema::GetFromParent(_primDataSource);
-
-        const GfMatrix4d local = 
-            _ComputeLocalXform(_primDataSource, _instanceName, shutterOffset);
-        GfMatrix4d camXformMatrix(1.0);
-
-        if (camXform) {
-            _GetDefaultTypedValue(camXform.GetMatrix(), shutterOffset, 
-                &camXformMatrix);
-        }
-        return local * camXformMatrix;
-    }
-
-    bool GetContributingSampleTimesForInterval(
-            Time startTime, Time endTime,
-            std::vector<Time> *outSampleTimes) override
-    {
-        HdCameraSchema cam = HdCameraSchema::GetFromParent(_primDataSource);
-        HdXformSchema camXform = HdXformSchema::GetFromParent(_primDataSource);
-        HdBackPlateSchema backPlate = _GetBackPlateSchema(_instanceName, 
-                                                          _primDataSource);
-        HdSampledDataSourceHandle sources[] = {
-            cam.GetFocusDistance(),
-            backPlate.GetTranslateTweak(),
-            backPlate.GetRotateXYZTweak(),
-            camXform.GetMatrix()
-        };
-        return HdGetMergedContributingSampleTimesForInterval(
-            TfArraySize(sources), sources, startTime, endTime, outSampleTimes);
-    }           
-
-private:
-    _XformMatrixDataSource(TfToken const &instanceName,
-                            HdContainerDataSourceHandle const &primDataSource)
-    : _instanceName(instanceName)
-    , _primDataSource(primDataSource) {}
-
-    TfToken const _instanceName;
-    HdContainerDataSourceHandle const _primDataSource;
-};
-
-static HdContainerDataSourceHandle
-_BuildMeshTopologyDataSource()
-{
-    static const VtIntArray numVerts{4};
-    static const VtIntArray verts{0, 1, 2, 3};
-
-    static const HdContainerDataSourceHandle topologyDs =
-        HdMeshTopologySchema::Builder()
-            .SetFaceVertexCounts(
-                HdRetainedTypedSampledDataSource<VtIntArray>::New(numVerts))
-            .SetFaceVertexIndices(
-                HdRetainedTypedSampledDataSource<VtIntArray>::New(verts))
-            .SetOrientation(
-                HdRetainedTypedSampledDataSource<TfToken>::New(
-                    HdMeshTopologySchemaTokens->rightHanded))
-            .Build();
-    return topologyDs;
+    return HdDataSourceLocatorSet();
 }
-
-static HdContainerDataSourceHandle
-_BuildMaterialNetworkDataSource(
-    TfToken const &appliedInstanceName,
-    HdContainerDataSourceHandle const &primDataSource)
-{
-    // USD Primar Reader Params
-    static const HdDataSourceBaseHandle usdPrimvarReaderParams = {
-        HdMaterialNodeParameterSchema::Builder()
-            .SetValue(HdRetainedTypedSampledDataSource<VtValue>::New(
-                VtValue(_materialNodeParamsTokens->texCoord)))
-            .Build()};
-
-    // USD Primar Reader Node
-    const HdDataSourceBaseHandle usdPrimvarReaderNode
-        = HdMaterialNodeSchema::Builder()
-            .SetParameters(
-                HdRetainedContainerDataSource::New(
-                    _materialNodeParamsTokens->varname,
-                    usdPrimvarReaderParams))
-            .SetNodeIdentifier(
-                HdRetainedTypedSampledDataSource<TfToken>::New(
-                    _materialNodeNamesTokens->UsdPrimvarReader_float2))
-            .Build();
-
-    HdBackPlateSchema backPlateSchema = _GetBackPlateSchema(appliedInstanceName,
-                                                            primDataSource);
-    SdfAssetPath assetPath;
-    if (backPlateSchema) {
-        _GetDefaultTypedValue(backPlateSchema.GetImage(), 0.0, &assetPath);
-    }
-    // Usd UVTextureNode Params
-    static const TfToken texParamNames[] = { 
-        _materialNodeParamsTokens->file, 
-        _materialNodeParamsTokens->st, 
-        _materialNodeParamsTokens->wrapS, 
-        _materialNodeParamsTokens->wrapT };
-    HdDataSourceBaseHandle texParams[] = {
-        HdMaterialNodeParameterSchema::Builder()
-            .SetValue(HdRetainedTypedSampledDataSource<SdfAssetPath>::New(
-                assetPath))
-            .Build(),
-        HdMaterialNodeParameterSchema::Builder()
-            .SetValue(HdRetainedTypedSampledDataSource<TfToken>::New(
-                _materialNodeParamsTokens->texCoord))
-            .Build(),
-        HdMaterialNodeParameterSchema::Builder()
-            .SetValue(HdRetainedTypedSampledDataSource<TfToken>::New(
-                _materialNodeParamsTokens->clamp))
-            .Build(),
-        HdMaterialNodeParameterSchema::Builder()
-            .SetValue(HdRetainedTypedSampledDataSource<TfToken>::New(
-                _materialNodeParamsTokens->clamp))
-            .Build()};
-
-    // Usd UVTextureNode Connections
-    static const TfToken texConnectionNames[] = {_materialNodeParamsTokens->st};
-    HdDataSourceBaseHandle texConnections[] = {
-        HdRetainedSmallVectorDataSource::New(
-            1,
-            std::array<HdDataSourceBaseHandle, 1>{
-                HdMaterialConnectionSchema::Builder()
-                    .SetUpstreamNodePath(
-                        HdRetainedTypedSampledDataSource<TfToken>::New(
-                            _materialNodeNamesTokens->UsdPrimvarReader_float2))
-                    .SetUpstreamNodeOutputName(
-                        HdRetainedTypedSampledDataSource<TfToken>::New(
-                            _materialNodeParamsTokens->result))
-                    .Build()
-            }.data())
-    };
-    // UsdUVTextureNode 
-    const HdDataSourceBaseHandle textureNode =
-        HdMaterialNodeSchema::Builder()
-        .SetNodeIdentifier(
-            HdRetainedTypedSampledDataSource<TfToken>::New(
-                _materialNodeNamesTokens->UsdUVTexture))
-        .SetInputConnections(
-            HdRetainedContainerDataSource::New(
-                1, texConnectionNames, texConnections))
-        .SetParameters(
-            HdRetainedContainerDataSource::New(4, texParamNames, texParams))
-        .Build();
-
-    // USD Preview Surface Connections
-    static const TfToken usdPreviewSurfaceConnectionNames[] = {
-        _materialNodeParamsTokens->emissiveColor
-    };
-    static const HdDataSourceBaseHandle usdPreviewSurfaceConnections = {
-        HdRetainedSmallVectorDataSource::New(
-            1,
-            std::array<HdDataSourceBaseHandle, 1> {
-                HdMaterialConnectionSchema::Builder()
-                    .SetUpstreamNodePath(
-                        HdRetainedTypedSampledDataSource<TfToken>::New(
-                            _materialNodeNamesTokens->UsdUVTexture))
-                    .SetUpstreamNodeOutputName(
-                        HdRetainedTypedSampledDataSource<TfToken>::New(
-                            _materialNodeParamsTokens->rgb))
-                    .Build() }
-                .data())
-    };
-
-    // USD Preview Surface Node
-    const HdDataSourceBaseHandle usdPreviewSurfaceNode
-        = HdMaterialNodeSchema::Builder()
-            .SetInputConnections(
-                HdRetainedContainerDataSource::New(
-                    _materialNodeParamsTokens->emissiveColor,
-                    usdPreviewSurfaceConnections))
-            .SetNodeIdentifier(
-                HdRetainedTypedSampledDataSource<TfToken>::New(
-                    _materialNodeNamesTokens->UsdPreviewSurface))
-            .Build();
-
-    // USD Preview Surface Nodes
-    const HdContainerDataSourceHandle nodesDs
-        = HdRetainedContainerDataSource::New(
-            _materialNodeNamesTokens->UsdPrimvarReader_float2, 
-                usdPrimvarReaderNode,
-            _materialNodeNamesTokens->UsdPreviewSurface, usdPreviewSurfaceNode,
-            _materialNodeNamesTokens->UsdUVTexture, textureNode);
-
-    // USD Preview Surface Terminals
-    const HdContainerDataSourceHandle terminalsDs
-        = HdRetainedContainerDataSource::New(
-            HdMaterialTerminalTokens->surface,
-            HdMaterialConnectionSchema::Builder()
-                .SetUpstreamNodePath(
-                    HdRetainedTypedSampledDataSource<TfToken>::New(
-                        _materialNodeNamesTokens->UsdPreviewSurface))
-                .SetUpstreamNodeOutputName(
-                    HdRetainedTypedSampledDataSource<TfToken>::New(
-                        HdMaterialTerminalTokens->surface))
-                .Build()
-    );
-
-    // USD Preview Surface Material Network
-    const HdDataSourceBaseHandle materialNetworkDs
-        = HdMaterialNetworkSchema::Builder()
-            .SetNodes(nodesDs)
-            .SetTerminals(terminalsDs)
-            .Build();
-
-    // USD Preview Surface Material
-    const HdContainerDataSourceHandle materialDs
-        = HdMaterialSchema::BuildRetained(
-            1,
-            &HdMaterialSchemaTokens->universalRenderContext,
-            &materialNetworkDs
-    );
-    return materialDs;
-}
-
-class _MaterialDataSource : public HdContainerDataSource
-{
-public:
-    HD_DECLARE_DATASOURCE(_MaterialDataSource);
-
-    TfTokenVector GetNames() override {
-        static const TfTokenVector result = {
-            HdMaterialSchemaTokens->material
-        };
-        return result;
-    }
-
-    HdDataSourceBaseHandle Get(const TfToken &name) override {
-        if (name == HdMaterialSchemaTokens->material) {
-            return _BuildMaterialNetworkDataSource(_instanceName,
-                                                   _primDataSource);
-        }
-        return nullptr;
-    }
-
-private:
-    _MaterialDataSource(
-        TfToken const & instanceName,
-        HdContainerDataSourceHandle const &primDataSource)
-     : _instanceName(instanceName),
-       _primDataSource(primDataSource)
-    {}
-    TfToken const _instanceName;
-    HdContainerDataSourceHandle const _primDataSource;
-};
-
-class _PrimvarsDataSource : public HdContainerDataSource
-{
-public:
-    HD_DECLARE_DATASOURCE(_PrimvarsDataSource);
-
-    TfTokenVector GetNames() override {
-        static const TfTokenVector result
-            {HdPrimvarsSchemaTokens->points, 
-            _materialNodeParamsTokens->texCoord};
-        return result;
-    }
-
-    HdDataSourceBaseHandle Get(const TfToken &name) override {
-        if (name == HdPrimvarsSchemaTokens->points) {
-            HdContainerDataSourceHandle pointsPrimvarDs =
-            HdPrimvarSchema::Builder()
-                .SetPrimvarValue(
-                    _PointsValueDataSource::New(_instanceName, _primDataSource))
-                .SetInterpolation(
-                    HdRetainedTypedSampledDataSource<TfToken>::New(
-                        HdPrimvarSchemaTokens->vertex))
-                .SetRole(
-                    HdRetainedTypedSampledDataSource<TfToken>::New(
-                        HdPrimvarSchemaTokens->point))
-                .Build();
-            return pointsPrimvarDs;
-        }
-        if (name == _materialNodeParamsTokens->texCoord) {
-            static const VtVec2fArray textureCoord {
-                {1.0, 1.0},
-                {0.0, 1.0},
-                {0.0, 0.0},
-                {1.0,0.0}};
-
-            static const HdContainerDataSourceHandle texCoordPrimvarDs =
-                HdPrimvarSchema::Builder()
-                .SetPrimvarValue(
-                    HdRetainedTypedSampledDataSource<VtVec2fArray>::New(
-                        textureCoord))
-                .SetInterpolation(
-                    HdRetainedTypedSampledDataSource<TfToken>::New(
-                        HdPrimvarSchemaTokens->vertex))
-                .SetRole(
-                    HdRetainedTypedSampledDataSource<TfToken>::New(
-                        TfToken()))
-                .Build();
-            return texCoordPrimvarDs;
-        }
-        return nullptr;
-    }
-
-private:
-    _PrimvarsDataSource(
-        TfToken const & instanceName,
-        HdContainerDataSourceHandle const &primDataSource)
-     : _instanceName(instanceName),
-       _primDataSource(primDataSource)
-    {
-    }
-    TfToken const _instanceName;
-    HdContainerDataSourceHandle const _primDataSource;
-};
-
-static HdDataSourceBaseHandle
-_BuildXformDataSource(
-    const TfToken &instanceName,
-    const HdContainerDataSourceHandle &primDataSource) {
-
-    HdDataSourceBaseHandle xformDs = HdXformSchema::Builder()
-        .SetMatrix(
-            _XformMatrixDataSource::New(instanceName, primDataSource))
-        .SetResetXformStack(
-            HdRetainedTypedSampledDataSource<bool>::New(false))
-        .Build();
-    return xformDs;
-}
-
-static HdContainerDataSourceHandle
-_BuildMaterialBindingsDataSource(const SdfPath &platePath)
-{
-    SdfPath materialPath =
-        platePath.AppendChild(_backPlatePrimsTokens->material);
-    HdDataSourceBaseHandle materialBindingDs = 
-                HdMaterialBindingSchema::Builder()
-                    .SetPath(HdRetainedTypedSampledDataSource<SdfPath>::New(
-                        materialPath))
-                    .Build();
-    return HdRetainedContainerDataSource::New(
-            HdMaterialBindingsSchemaTokens->allPurpose,
-            materialBindingDs);
-}
-
-static HdContainerDataSourceHandle
-_BuildMeshDataSource()
-{
-    return HdRetainedContainerDataSource::New( 
-        HdMeshSchemaTokens->topology,
-            _BuildMeshTopologyDataSource(),
-        HdMeshSchemaTokens->subdivisionScheme,
-            HdRetainedTypedSampledDataSource<TfToken>::New(
-                PxOsdOpenSubdivTokens->catmullClark),
-        HdMeshSchemaTokens->doubleSided,
-            HdRetainedTypedSampledDataSource<bool>::New(false));
-}
-
-static HdContainerDataSourceHandle
-_BuildMeshPrimDataSource(
-    const SdfPath &platePath,
-    const TfToken &instanceName,
-    const HdContainerDataSourceHandle &primDataSource)
-{
-    return
-        HdRetainedContainerDataSource::New(
-            HdMeshSchemaTokens->mesh,
-                _BuildMeshDataSource(),
-            HdPrimvarsSchemaTokens->primvars,
-                _PrimvarsDataSource::New(instanceName, primDataSource),
-            HdXformSchemaTokens->xform,
-                _BuildXformDataSource(instanceName, primDataSource),
-            HdMaterialBindingsSchema::GetSchemaToken(),
-                _BuildMaterialBindingsDataSource(platePath));
-}
-
-static HdContainerDataSourceHandle
-_BuildMaterialDataSource(
-    const TfToken &instanceName,
-    const HdContainerDataSourceHandle &primDataSource)
-{
-    return _MaterialDataSource::New(instanceName, primDataSource);
-}
-
 ////////////////////////////////////////////////////////////////////////////////
-
-/* static */
-HdsiBackPlateSceneIndexRefPtr
-HdsiBackPlateSceneIndex::New(
-    const HdSceneIndexBaseRefPtr &inputSceneIndex)
-{
-    return TfCreateRefPtr(
-        new HdsiBackPlateSceneIndex(inputSceneIndex));
-}
-
 HdsiBackPlateSceneIndex::HdsiBackPlateSceneIndex(
     const HdSceneIndexBaseRefPtr &inputSceneIndex)
 : HdSingleInputFilteringSceneIndexBase(inputSceneIndex)
@@ -686,7 +192,7 @@ HdsiBackPlateSceneIndex::_GetMeshOrMaterialSiPrim(
     const TfToken instanceName = plateInstancePath.GetElementToken();
 
     const SdfPath cameraPrimPath = plateInstancePath.GetParentPath();
-    HdContainerDataSourceHandle cameraDs = 
+    HdContainerDataSourceHandle cameraDs =
         _GetInputSceneIndex()->GetPrim(cameraPrimPath).dataSource;
     if (plateChildType == _backPlatePrimsTokens->mesh) {
         return {HdPrimTypeTokens->mesh, _BuildMeshPrimDataSource(
@@ -712,10 +218,20 @@ HdsiBackPlateSceneIndex::_IsBackPlateInMap(const SdfPath &platePath) const {
     return false;
 }
 
+bool
+HdsiBackPlateSceneIndex::_HasTrackedBackPlates() const {
+    return !_cameraToBackPlates.empty();
+}
+
 HdSceneIndexPrim
 HdsiBackPlateSceneIndex::GetPrim(const SdfPath &primPath) const
 {
+    if (!_HasTrackedBackPlates()) {
+        return _GetInputSceneIndex()->GetPrim(primPath);
+    }
+
     TRACE_FUNCTION();
+
     if (primPath.IsAbsoluteRootPath()) {
         return _GetInputSceneIndex()->GetPrim(primPath);
     }
@@ -725,11 +241,11 @@ HdsiBackPlateSceneIndex::GetPrim(const SdfPath &primPath) const
         return HdSceneIndexPrim({TfToken(),
             HdRetainedContainerDataSource::New()});
     }
-    
+
     // Check if we have a back plate child prim path
     const SdfPath platePath = primPath.GetParentPath();
     if (_IsBackPlateInMap(platePath)) {
-        HdSceneIndexPrim prim = 
+        HdSceneIndexPrim prim =
             _GetMeshOrMaterialSiPrim(platePath, primPath.GetElementToken());
         if (prim) {
             return prim;
@@ -742,6 +258,10 @@ SdfPathVector
 HdsiBackPlateSceneIndex::GetChildPrimPaths(
     const SdfPath &primPath) const
 {
+    if (!_HasTrackedBackPlates()) {
+        return _GetInputSceneIndex()->GetChildPrimPaths(primPath);
+    }
+
     TRACE_FUNCTION();
 
     // Case 1: The prim path is the camera prim's path. Return all back plate
@@ -759,9 +279,9 @@ HdsiBackPlateSceneIndex::GetChildPrimPaths(
     // Case 2: The prim path is a back plate path. Return mesh and material
     // children prims.
     if (_IsBackPlateInMap(primPath)){
-        const SdfPath meshPath = 
+        const SdfPath meshPath =
             primPath.AppendChild(_backPlatePrimsTokens->mesh);
-        const SdfPath materialPath = 
+        const SdfPath materialPath =
             primPath.AppendChild(_backPlatePrimsTokens->material);
         return {meshPath, materialPath};
     }
@@ -783,7 +303,7 @@ HdsiBackPlateSceneIndex::_AddBackPlateChildren(
 
     HdBackPlateContainerSchema backPlatesSchema = cameraSchema.GetBackPlate();
     TfTokenVector names = backPlatesSchema.GetNames();
-    
+
     _BackPlates backPlates;
     for (const TfToken & name : names){
         if (addedBackPlatePrims) {
@@ -819,15 +339,26 @@ HdsiBackPlateSceneIndex::_DirtyBackPlateChildren(
 
     HdBackPlateContainerSchema backPlatesSchema = cameraSchema.GetBackPlate();
     TfTokenVector names = backPlatesSchema.GetNames();
-    
+
     for (const TfToken & name : names){
         const SdfPath meshPath = _BuildBackPlatePrimPath(cameraPrimPath, name,
             _backPlatePrimsTokens->mesh);
+        const SdfPath materialPath = _BuildBackPlatePrimPath(cameraPrimPath, name,
+            _backPlatePrimsTokens->material);
+        HdDataSourceLocatorSet meshDirtyLocators({
+            HdMaterialSchema::GetDefaultLocator(),
+            HdPrimvarsSchema::GetDefaultLocator(),
+            HdXformSchema::GetDefaultLocator()
+        });
+        meshDirtyLocators.insert(_GetAdditionalDirtyLocators());
         dirtiedBackPlatePrims->push_back({
             meshPath,
+            meshDirtyLocators
+        });
+        dirtiedBackPlatePrims->push_back({
+            materialPath,
             HdDataSourceLocatorSet({
-                HdPrimvarsSchema::GetDefaultLocator(),
-                HdXformSchema::GetDefaultLocator()})
+                HdMaterialSchema::GetDefaultLocator()})
         });
     }
 }
@@ -838,7 +369,7 @@ HdsiBackPlateSceneIndex::_RemoveBackPlateChildren(
     SdfPathSet * const removedBackPlatePrims)
 {
     auto it = _cameraToBackPlates.lower_bound(primPath);
-    while (it != _cameraToBackPlates.end() && 
+    while (it != _cameraToBackPlates.end() &&
             it->first.HasPrefix(primPath)) {
         if (removedBackPlatePrims) {
             for (const TfToken & name : it->second) {
@@ -866,9 +397,13 @@ HdsiBackPlateSceneIndex::_PrimsAdded(
         _RemoveBackPlateChildren(
             entry.primPath,
             isObserved ? &removedBackPlatePrims : nullptr);
-        _AddBackPlateChildren(
-            entry.primPath,
-            isObserved ? &addedBackPlatePrims : nullptr);
+        // Check if camera is entry prim to avoid querying GetPrim() on input
+        // scene index.
+        if (entry.primType == HdPrimTypeTokens->camera){
+            _AddBackPlateChildren(
+                entry.primPath,
+                isObserved ? &addedBackPlatePrims : nullptr);
+        }
     }
     if (!isObserved) {
         return;
@@ -918,13 +453,17 @@ HdsiBackPlateSceneIndex::_PrimsDirtied(
     HdSceneIndexObserver::DirtiedPrimEntries dirtiedBackPlatePrims;
     SdfPathSet addedBackPlatePrims;
     SdfPathSet removedBackPlatePrims;
-
     for (const HdSceneIndexObserver::DirtiedPrimEntry &entry : entries) {
         if (entry.dirtyLocators.Intersects(
                 HdCameraSchema::GetBackPlateLocator())) {
             _RemoveBackPlateChildren(
                 entry.primPath,
                 isObserved ? &removedBackPlatePrims : nullptr);
+
+            // XXX Below, we're querying the prim to check if it has back
+            // plates. For the universal locator set, we'd end up querying
+            // non-camera prims. Scope this to just cameras by tracking all
+            // camera prims in _PrimsAdded.
             _AddBackPlateChildren(
                 entry.primPath,
                 isObserved ? &addedBackPlatePrims : nullptr);
@@ -932,13 +471,16 @@ HdsiBackPlateSceneIndex::_PrimsDirtied(
         if (entry.dirtyLocators.Intersects(
                 HdCameraSchema::GetDefaultLocator()) ||
             entry.dirtyLocators.Intersects(
-                HdXformSchema::GetDefaultLocator())) {
+                HdXformSchema::GetDefaultLocator()) ||
+            entry.dirtyLocators.Intersects(
+                _GetAdditionalDirtyLocators())) {
+
+            // XXX Here too we end up querying the prim.
             _DirtyBackPlateChildren(
                 entry.primPath,
                 isObserved ? &dirtiedBackPlatePrims : nullptr);
         }
     }
-
     if (!isObserved) {
         return;
     }
@@ -957,4 +499,3 @@ HdsiBackPlateSceneIndex::_PrimsDirtied(
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE
-
