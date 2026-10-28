@@ -53,7 +53,7 @@ vec4 displacementShader(int index, vec4 Peye, vec3 Neye, vec4 patchCoord)
     displacement = (displacement - HdGetScalar_depthMinOffset())
             * HdGetScalar_depthNormalizingFactor()
             + HdGetScalar_depthCameraSpaceOffset();
-    Peye.xyz += displacement * normalize(Peye);
+    Peye.xyz += displacement * normalize(Neye);
     return Peye;
 }
 
